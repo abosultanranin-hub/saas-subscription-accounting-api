@@ -1,0 +1,6 @@
+node_modules
+dist
+.vercel
+coverage
+npm-debug.log*
+config.bat

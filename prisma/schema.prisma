@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  VOID
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  REVENUE
+}
+
+model Tenant {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  createdAt     DateTime       @default(now())
+  users         User[]
+  plans         Plan[]
+  customers     Customer[]
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  payments      Payment[]
+  accounts      Account[]
+  journalEntries JournalEntry[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  name         String
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now())
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Plan {
+  id            String         @id @default(uuid())
+  tenantId      String
+  name          String
+  priceCents    Int
+  currency      String         @default("USD")
+  interval      String         @default("monthly")
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+  invoiceItems  InvoiceItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  tenantId      String
+  name          String
+  email         String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+  invoices      Invoice[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Subscription {
+  id            String             @id @default(uuid())
+  tenantId      String
+  customerId    String
+  planId        String
+  startDate     DateTime
+  status        SubscriptionStatus @default(ACTIVE)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer      Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan          Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  invoices      Invoice[]
+
+  @@index([tenantId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, planId])
+}
+
+model Invoice {
+  id              String        @id @default(uuid())
+  tenantId        String
+  customerId      String
+  subscriptionId  String?
+  periodStart     DateTime
+  periodEnd       DateTime
+  issuedAt        DateTime      @default(now())
+  status          InvoiceStatus @default(OPEN)
+  totalCents      Int
+  paidCents       Int           @default(0)
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  items           InvoiceItem[]
+  payments        Payment[]
+  journalEntries  JournalEntry[]
+
+  @@unique([tenantId, subscriptionId, periodStart])
+  @@index([tenantId])
+  @@index([tenantId, customerId])
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  planId      String?
+  description String
+  amountCents Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  plan        Plan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+}
+
+model Payment {
+  id             String         @id @default(uuid())
+  tenantId       String
+  invoiceId      String
+  amountCents    Int
+  paidAt         DateTime       @default(now())
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  journalEntries JournalEntry[]
+
+  @@index([tenantId])
+  @@index([tenantId, invoiceId])
+}
+
+model Account {
+  id            String        @id @default(uuid())
+  tenantId      String
+  code          String
+  name          String
+  type          AccountType
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  journalLines  JournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model JournalEntry {
+  id          String        @id @default(uuid())
+  tenantId    String
+  invoiceId   String?
+  paymentId   String?
+  description String
+  entryDate   DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice     Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  payment     Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  lines       JournalLine[]
+
+  @@index([tenantId])
+  @@index([tenantId, entryDate])
+}
+
+model JournalLine {
+  id             String       @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  debitCents     Int          @default(0)
+  creditCents    Int          @default(0)
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account        Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId])
+}
